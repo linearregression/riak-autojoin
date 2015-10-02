@@ -39,6 +39,7 @@ type Test []ConsulResponse
 
 var service = flag.String("service", "riak", "The service name to listen for")
 var tag = flag.String("tag", "", "The tag name to listen for")
+var consul_path = flag.String("consul", "/usr/sbin/consul", "Path to the consul binary")
 
 func main() {
 	flag.Parse()
@@ -48,7 +49,7 @@ func main() {
 func main_loop() {
 	// Wait for 3 min 36*5 = 180
 	for i := 0; i < 36; i++ {
-		cmd := exec.Command("/usr/bin/consul", "watch", "-service="+*service, "-tag="+*tag, "-type=service", "-passingonly=true")
+		cmd := exec.Command(*consul_path, "watch", "-service="+*service, "-tag="+*tag, "-type=service", "-passingonly=true")
 
 		out, _ := cmd.CombinedOutput()
 
