@@ -11,75 +11,67 @@ import (
 	"time"
 )
 
-type ConsulResponse struct {
-	Checks []struct {
-		CheckID     string `json:"CheckID"`
-		Name        string `json:"Name"`
-		Node        string `json:"Node"`
-		Notes       string `json:"Notes"`
-		Output      string `json:"Output"`
-		ServiceID   string `json:"ServiceID"`
-		ServiceName string `json:"ServiceName"`
-		Status      string `json:"Status"`
-	} `json:"Checks"`
-	Node struct {
-		Address string `json:"Address"`
-		Node    string `json:"Node"`
-	} `json:"Node"`
-	Service struct {
-		Address string   `json:"Address"`
-		ID      string   `json:"ID"`
-		Port    int      `json:"Port"`
-		Service string   `json:"Service"`
-		Tags    []string `json:"Tags"`
-	} `json:"Service"`
+func (r *RealExecuter) Execute(name string, arg ...string) ([]byte, bool) {
+	cmd := exec.Command(name, arg...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Getting output from command %s failed with '%s'\n", name, err)
+	}
+	return out, cmd.ProcessState.Success()
 }
-
-type Test []ConsulResponse
 
 var service = flag.String("service", "riak", "The service name to listen for")
 var tag = flag.String("tag", "", "The tag name to listen for")
 var consul_path = flag.String("consul", "/usr/sbin/consul", "Path to the consul binary")
+var riak_user = flag.String("riak-user", "riak", "The user name of the node we are connecting too")
+
+var timeout = flag.Int("timeout", 5, "Timeout in seconds")
+var timeout_iterations = flag.Int("timeout-iterations", 36, "Number of iterations to do the timeout")
 
 func main() {
+	riak := Riak{executer: new(RealExecuter)}
 	flag.Parse()
-	main_loop()
+	os.Exit(riak.main_loop())
 }
 
-func main_loop() {
+func (r *Riak) main_loop() int {
 	// Wait for 3 min 36*5 = 180
-	for i := 0; i < 36; i++ {
-		cmd := exec.Command(*consul_path, "watch", "-service="+*service, "-tag="+*tag, "-type=service", "-passingonly=true")
 
-		out, _ := cmd.CombinedOutput()
-
-		if cmd.ProcessState.Success() {
-			var resp Test
-			if err := json.NewDecoder(bytes.NewReader(out)).Decode(&resp); err != nil {
-				log.Fatal(err)
-			}
-
-			for _, k := range resp {
-				if join_riak(k.Node.Node) {
-					os.Exit(0)
-				}
-			}
-		} else {
-			log.Println("Consul watch didn't execute successfully.")
-			log.Println(string(out))
+	for i := 0; i < *timeout_iterations; i++ {
+		if r.find_nodes() {
+			return 0
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(time.Duration(*timeout) * time.Second)
 	}
-	os.Exit(1)
+	return 1
 }
 
-func join_riak(nodename string) bool {
-	cmd := exec.Command("sudo", "-H", "-u riak", "riak-admin", "cluster", "join", "riak@"+nodename)
+func (r *Riak) find_nodes() bool {
+	out, success := r.executer.Execute(*consul_path, "watch", "-service="+*service, "-tag="+*tag, "-type=service", "-passingonly=true")
 
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Println(err, string(out))
+	if success {
+		var resp Test
+		if err := json.NewDecoder(bytes.NewReader(out)).Decode(&resp); err != nil {
+			log.Fatal("Unable to parse json from consul: ", err)
+		}
+
+		for _, k := range resp {
+			if r.join_riak(k.Nodes.Node) {
+				return true
+			}
+		}
+	} else {
+		log.Println("Consul watch didn't execute successfully.")
+		log.Println(string(out))
 	}
-	fmt.Println(string(out))
-	return cmd.ProcessState.Success()
+	return false
+}
+
+func (r *Riak) join_riak(nodename string) bool {
+	out, success := r.executer.Execute("sudo", "-H", "-u riak", "riak-admin", "cluster", "join", *riak_user+"@"+nodename)
+
+	if !success {
+		fmt.Println(string(out))
+	}
+	return success
 }
