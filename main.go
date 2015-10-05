@@ -23,7 +23,10 @@ func (r *RealExecuter) Execute(name string, arg ...string) ([]byte, bool) {
 var service = flag.String("service", "riak", "The service name to listen for")
 var tag = flag.String("tag", "", "The tag name to listen for")
 var consul_path = flag.String("consul", "/usr/sbin/consul", "Path to the consul binary")
-var riak_user = flag.String("riak-user", "riak", "The user name of the node we are connecting too")
+var process_name = flag.String("process_name", "riak", "The process_name of the node we are connecting too")
+
+var host = flag.String("host", "localhost", "The hostname for the consul")
+var port = flag.String("port", "8500", "Port of the consul server")
 
 var timeout = flag.Int("timeout", 5, "Timeout in seconds")
 var timeout_iterations = flag.Int("timeout-iterations", 36, "Number of iterations to do the timeout")
@@ -47,7 +50,9 @@ func (r *Riak) main_loop() int {
 }
 
 func (r *Riak) find_nodes() bool {
-	client, err := api.NewClient(&api.Config{})
+	client, err := api.NewClient(&api.Config{
+		Address: *host + ":" + *port,
+	})
 	if err != nil {
 		log.Println("Unable to contact consul cluster")
 	}
@@ -66,7 +71,7 @@ func (r *Riak) find_nodes() bool {
 }
 
 func (r *Riak) join_riak(nodehostname string) bool {
-	out, success := r.executer.Execute("sudo", "-H", "-u riak", "riak-admin", "cluster", "join", *riak_user+"@"+nodehostname)
+	out, success := r.executer.Execute("sudo", "-H", "-u riak", "riak-admin", "cluster", "join", *process_name+"@"+nodehostname)
 
 	if !success {
 		fmt.Println(string(out))
