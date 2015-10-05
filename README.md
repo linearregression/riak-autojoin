@@ -4,10 +4,12 @@ This is a small to for auto joining Riak nodes to a cluster, based on values fro
 
 ```shell
 Usage of ./riak-autojoin:
-  -consul string
-    	Path to the consul binary (default "/usr/sbin/consul")
-  -riak-user string
-    	The user name of the node we are connecting too (default "riak")
+  -host string
+    	The hostname for the consul (default "localhost")
+  -port string
+    	Port of the consul server (default "8500")
+  -process_name string
+    	The process_name of the node we are connecting too (default "riak")
   -service string
     	The service name to listen for (default "riak")
   -tag string

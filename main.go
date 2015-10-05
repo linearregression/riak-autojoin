@@ -11,6 +11,11 @@ import (
 	"github.com/hashicorp/consul/api"
 )
 
+const (
+	SUCCESS = 0
+	FAILURE = 1
+)
+
 func (r *RealExecuter) Execute(name string, arg ...string) ([]byte, bool) {
 	cmd := exec.Command(name, arg...)
 	out, err := cmd.CombinedOutput()
@@ -22,7 +27,7 @@ func (r *RealExecuter) Execute(name string, arg ...string) ([]byte, bool) {
 
 var service = flag.String("service", "riak", "The service name to listen for")
 var tag = flag.String("tag", "", "The tag name to listen for")
-var consul_path = flag.String("consul", "/usr/sbin/consul", "Path to the consul binary")
+
 var process_name = flag.String("process_name", "riak", "The process_name of the node we are connecting too")
 
 var host = flag.String("host", "localhost", "The hostname for the consul")
@@ -41,15 +46,15 @@ func (r *Riak) main_loop() int {
 	// Wait for 3 min 36*5 = 180
 
 	for i := 0; i < *timeout_iterations; i++ {
-		if r.find_nodes() {
-			return 0
+		if r.join_nodes(r.discover_services()) {
+			return SUCCESS
 		}
 		time.Sleep(time.Duration(*timeout) * time.Second)
 	}
-	return 1
+	return FAILURE
 }
 
-func (r *Riak) find_nodes() bool {
+func (r *Riak) discover_services() []*api.ServiceEntry {
 	client, err := api.NewClient(&api.Config{
 		Address: *host + ":" + *port,
 	})
@@ -61,6 +66,10 @@ func (r *Riak) find_nodes() bool {
 	if err != nil {
 		log.Println("Unable to talk to consul", err)
 	}
+	return serviceEntries
+}
+
+func (r *Riak) join_nodes(serviceEntries []*api.ServiceEntry) bool {
 	for _, v := range serviceEntries {
 		log.Printf("Found node '%s' trying to join it\n", v.Node.Node)
 		if r.join_riak(v.Node.Node) {
@@ -71,7 +80,7 @@ func (r *Riak) find_nodes() bool {
 }
 
 func (r *Riak) join_riak(nodehostname string) bool {
-	out, success := r.executer.Execute("sudo", "-H", "-u riak", "riak-admin", "cluster", "join", *process_name+"@"+nodehostname)
+	out, success := r.executer.Execute("sudo", "-H", "-u", "riak", "riak-admin", "cluster", "join", *process_name+"@"+nodehostname)
 
 	if !success {
 		fmt.Println(string(out))
