@@ -67,8 +67,8 @@ func (r *Riak) find_nodes() bool {
 	return false
 }
 
-func (r *Riak) join_riak(nodename string) bool {
-	out, success := r.executer.Execute("sudo", "-H", "-u riak", "riak-admin", "cluster", "join", *riak_user+"@"+nodename)
+func (r *Riak) join_riak(nodehostname string) bool {
+	out, success := r.executer.Execute("sudo", "-H", "-u riak", "riak-admin", "cluster", "join", *riak_user+"@"+nodehostname)
 
 	if !success {
 		fmt.Println(string(out))
