@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -16,7 +15,7 @@ const (
 	FAILURE = 1
 )
 
-func (r *RealExecuter) Execute(name string, arg ...string) ([]byte, bool) {
+func (r *realexecuter) Execute(name string, arg ...string) ([]byte, bool) {
 	cmd := exec.Command(name, arg...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -37,12 +36,12 @@ var timeout = flag.Int("timeout", 5, "Timeout in seconds")
 var timeout_iterations = flag.Int("timeout-iterations", 36, "Number of iterations to do the timeout")
 
 func main() {
-	riak := Riak{executer: new(RealExecuter)}
+	riak := riak{executer: new(realexecuter)}
 	flag.Parse()
 	os.Exit(riak.main_loop())
 }
 
-func (r *Riak) main_loop() int {
+func (r *riak) main_loop() int {
 	// Wait for 3 min 36*5 = 180
 
 	for i := 0; i < *timeout_iterations; i++ {
@@ -54,7 +53,7 @@ func (r *Riak) main_loop() int {
 	return FAILURE
 }
 
-func (r *Riak) discover_services() []*api.ServiceEntry {
+func (r *riak) discover_services() []*api.ServiceEntry {
 	client, err := api.NewClient(&api.Config{
 		Address: *host + ":" + *port,
 	})
@@ -69,7 +68,7 @@ func (r *Riak) discover_services() []*api.ServiceEntry {
 	return serviceEntries
 }
 
-func (r *Riak) join_nodes(serviceEntries []*api.ServiceEntry) bool {
+func (r *riak) join_nodes(serviceEntries []*api.ServiceEntry) bool {
 	for _, v := range serviceEntries {
 		log.Printf("Found node '%s' trying to join it\n", v.Node.Node)
 		if r.join_riak(v.Node.Node) {
@@ -79,11 +78,17 @@ func (r *Riak) join_nodes(serviceEntries []*api.ServiceEntry) bool {
 	return false
 }
 
-func (r *Riak) join_riak(nodehostname string) bool {
+func (r *riak) join_riak(nodehostname string) bool {
 	out, success := r.executer.Execute("sudo", "-H", "-u", "riak", "riak-admin", "cluster", "join", *process_name+"@"+nodehostname)
 
 	if !success {
-		fmt.Println(string(out))
+		log.Println(string(out))
 	}
+	log.Println("Comitting the plan !")
+	out, success = r.executer.Execute("sudo", "-H", "-u", "riak", "riak-admin", "cluster", "commit")
+	if !success {
+		log.Println("Was not able to commit the riak plan due to: ", string(out))
+	}
+
 	return success
 }
