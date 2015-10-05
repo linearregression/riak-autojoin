@@ -1,14 +1,14 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"time"
+
+	"github.com/hashicorp/consul/api"
 )
 
 func (r *RealExecuter) Execute(name string, arg ...string) ([]byte, bool) {
@@ -47,22 +47,20 @@ func (r *Riak) main_loop() int {
 }
 
 func (r *Riak) find_nodes() bool {
-	out, success := r.executer.Execute(*consul_path, "watch", "-service="+*service, "-tag="+*tag, "-type=service", "-passingonly=true")
-
-	if success {
-		var resp Test
-		if err := json.NewDecoder(bytes.NewReader(out)).Decode(&resp); err != nil {
-			log.Fatal("Unable to parse json from consul: ", err)
+	client, err := api.NewClient(&api.Config{})
+	if err != nil {
+		log.Println("Unable to contact consul cluster")
+	}
+	health := client.Health()
+	serviceEntries, _, err := health.Service(*service, *tag, true, &api.QueryOptions{})
+	if err != nil {
+		log.Println("Unable to talk to consul", err)
+	}
+	for _, v := range serviceEntries {
+		log.Printf("Found node '%s' trying to join it\n", v.Node.Node)
+		if r.join_riak(v.Node.Node) {
+			return true
 		}
-
-		for _, k := range resp {
-			if r.join_riak(k.Nodes.Node) {
-				return true
-			}
-		}
-	} else {
-		log.Println("Consul watch didn't execute successfully.")
-		log.Println(string(out))
 	}
 	return false
 }
