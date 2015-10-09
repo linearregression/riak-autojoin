@@ -1,85 +1,94 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"time"
+
+	"github.com/hashicorp/consul/api"
 )
 
-type ConsulResponse struct {
-	Checks []struct {
-		CheckID     string `json:"CheckID"`
-		Name        string `json:"Name"`
-		Node        string `json:"Node"`
-		Notes       string `json:"Notes"`
-		Output      string `json:"Output"`
-		ServiceID   string `json:"ServiceID"`
-		ServiceName string `json:"ServiceName"`
-		Status      string `json:"Status"`
-	} `json:"Checks"`
-	Node struct {
-		Address string `json:"Address"`
-		Node    string `json:"Node"`
-	} `json:"Node"`
-	Service struct {
-		Address string   `json:"Address"`
-		ID      string   `json:"ID"`
-		Port    int      `json:"Port"`
-		Service string   `json:"Service"`
-		Tags    []string `json:"Tags"`
-	} `json:"Service"`
-}
+const (
+	SUCCESS = 0
+	FAILURE = 1
+)
 
-type Test []ConsulResponse
+func (r *realexecuter) Execute(name string, arg ...string) ([]byte, bool) {
+	cmd := exec.Command(name, arg...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Getting output from command %s failed with '%s'\n", name, err)
+	}
+	return out, cmd.ProcessState.Success()
+}
 
 var service = flag.String("service", "riak", "The service name to listen for")
 var tag = flag.String("tag", "", "The tag name to listen for")
-var consul_path = flag.String("consul", "/usr/sbin/consul", "Path to the consul binary")
+
+var process_name = flag.String("process_name", "riak", "The process_name of the node we are connecting too")
+
+var host = flag.String("host", "localhost", "The hostname for the consul")
+var port = flag.String("port", "8500", "Port of the consul server")
+
+var timeout = flag.Int("timeout", 5, "Timeout in seconds")
+var timeout_iterations = flag.Int("timeout-iterations", 36, "Number of iterations to do the timeout")
 
 func main() {
+	riak := riak{executer: new(realexecuter)}
 	flag.Parse()
-	main_loop()
+	os.Exit(riak.main_loop())
 }
 
-func main_loop() {
+func (r *riak) main_loop() int {
 	// Wait for 3 min 36*5 = 180
-	for i := 0; i < 36; i++ {
-		cmd := exec.Command(*consul_path, "watch", "-service="+*service, "-tag="+*tag, "-type=service", "-passingonly=true")
 
-		out, _ := cmd.CombinedOutput()
-
-		if cmd.ProcessState.Success() {
-			var resp Test
-			if err := json.NewDecoder(bytes.NewReader(out)).Decode(&resp); err != nil {
-				log.Fatal(err)
-			}
-
-			for _, k := range resp {
-				if join_riak(k.Node.Node) {
-					os.Exit(0)
-				}
-			}
-		} else {
-			log.Println("Consul watch didn't execute successfully.")
-			log.Println(string(out))
+	for i := 0; i < *timeout_iterations; i++ {
+		if r.join_nodes(r.discover_services()) {
+			return SUCCESS
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(time.Duration(*timeout) * time.Second)
 	}
-	os.Exit(1)
+	return FAILURE
 }
 
-func join_riak(nodename string) bool {
-	cmd := exec.Command("sudo", "-H", "-u riak", "riak-admin", "cluster", "join", "riak@"+nodename)
-
-	out, err := cmd.CombinedOutput()
+func (r *riak) discover_services() []*api.ServiceEntry {
+	client, err := api.NewClient(&api.Config{
+		Address: *host + ":" + *port,
+	})
 	if err != nil {
-		log.Println(err, string(out))
+		log.Println("Unable to contact consul cluster")
 	}
-	fmt.Println(string(out))
-	return cmd.ProcessState.Success()
+	health := client.Health()
+	serviceEntries, _, err := health.Service(*service, *tag, true, &api.QueryOptions{})
+	if err != nil {
+		log.Println("Unable to talk to consul", err)
+	}
+	return serviceEntries
+}
+
+func (r *riak) join_nodes(serviceEntries []*api.ServiceEntry) bool {
+	for _, v := range serviceEntries {
+		log.Printf("Found node '%s' trying to join it\n", v.Node.Node)
+		if r.join_riak(v.Node.Node) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *riak) join_riak(nodehostname string) bool {
+	out, success := r.executer.Execute("sudo", "-H", "-u", "riak", "riak-admin", "cluster", "join", *process_name+"@"+nodehostname)
+
+	if !success {
+		log.Println(string(out))
+	}
+	log.Println("Comitting the plan !")
+	out, success = r.executer.Execute("sudo", "-H", "-u", "riak", "riak-admin", "cluster", "commit")
+	if !success {
+		log.Println("Was not able to commit the riak plan due to: ", string(out))
+	}
+
+	return success
 }
