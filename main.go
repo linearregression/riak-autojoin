@@ -84,11 +84,18 @@ func (r *riak) join_riak(nodehostname string) bool {
 	if !success {
 		log.Println(string(out))
 	}
+
+	out, success = r.executer.Execute("sudo", "-H", "-u", "riak", "riak-admin", "cluster", "plan")
+	if !success {
+		log.Println("Was not able to produce the riak plan due to: ", string(out))
+	}
+	log.Println(string(out))
+
 	log.Println("Comitting the plan !")
 	out, success = r.executer.Execute("sudo", "-H", "-u", "riak", "riak-admin", "cluster", "commit")
 	if !success {
 		log.Println("Was not able to commit the riak plan due to: ", string(out))
 	}
-
+	log.Println(string(out))
 	return success
 }
